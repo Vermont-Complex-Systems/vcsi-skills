@@ -134,22 +134,7 @@ let yScale = $derived(
 );
 ```
 
-When data changes with the scroll step, scales recompute and the template re-renders — no imperative update logic needed.
-
-## Scroll-Driven Data
-
-Use `$derived` or `$derived.by` to select/transform data based on `scrollyIndex`:
-
-```js
-let currentData = $derived.by(() => {
-  if (scrollyIndex >= 1) {
-    return data.sort((a, b) => b.value - a.value);
-  }
-  return shuffle(data);
-});
-
-let chartType = $derived(scrollyIndex >= 2 ? 'lollipop' : 'bar');
-```
+When data changes, scales recompute and the template re-renders — no imperative update logic needed.
 
 ## Animations and Transitions
 

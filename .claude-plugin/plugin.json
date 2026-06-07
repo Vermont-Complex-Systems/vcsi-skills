@@ -1,0 +1,20 @@
+{
+  "name": "vcsi-skills",
+  "version": "0.1.0",
+  "description": "AI coding skills from the Vermont Complex Systems Institute: Svelte + D3 charting, data storytelling, and more.",
+  "author": {
+    "name": "VCSI",
+    "url": "https://vcsi.cmplxsys.w3.uvm.edu/"
+  },
+  "homepage": "https://github.com/Vermont-Complex-Systems/vcsi-skills",
+  "repository": "https://github.com/Vermont-Complex-Systems/vcsi-skills",
+  "license": "MIT",
+  "keywords": [
+    "svelte",
+    "d3",
+    "charting",
+    "scrollytelling",
+    "data-visualization"
+  ],
+  "skills": "./skills/"
+}
