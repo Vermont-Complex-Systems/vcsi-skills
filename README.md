@@ -27,6 +27,12 @@ curl -o .claude/skills/svelte-d3-charting/SKILL.md \
 npx sv add @the-vcsi/svelte-d3-charting
 ```
 
+## Two main types of skills
+
+- [Enforcing best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices#pattern-2-domain-specific-organization)
+- [Feedback loops](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices#workflows-and-feedback-loops)
+
+
 ## Contributing
 
 Each skill lives in `skills/{name}/SKILL.md`. The SKILL.md frontmatter must include `name` and `description` fields.
