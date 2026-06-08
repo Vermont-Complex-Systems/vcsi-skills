@@ -1,27 +1,38 @@
 ---
 name: svelte-d3-charting
-description: Best practices for building data visualizations with Svelte 5 and D3. Load this skill when creating, editing, or reviewing chart/plot components that use D3 scales, axes, or data transforms inside Svelte templates.
+description: Best practices for building declaratively data visualizations with Svelte 5 and D3. Use this skill whenever creating, editing, or reviewing chart/plot components that combine D3 with Svelte.
 ---
 
 # Charting with Svelte + D3
 
 Use **Svelte for DOM rendering** and **D3 for math/scales** — never D3's imperative DOM manipulation.
 
-> For general Svelte patterns (reactivity, events, styling), see the **svelte-core-bestpractices** skill.
+## Companion skills and tools
+
+This skill focuses on D3+Svelte integration patterns. For general Svelte guidance (reactivity, events, styling), it works best alongside:
+
+- **svelte-core-bestpractices** skill — if available, use it for `$state`, `$derived`, `$effect`, event handling, and component patterns. If not installed, suggest the user install it.
+- **Svelte MCP server** (`plugin:svelte:svelte`) — if available, use `list-sections` and `get-documentation` to look up current Svelte docs on demand. Prefer this over guessing at Svelte APIs.
+
+If neither is available, mention it to the user with a reference to https://svelte.dev/docs/ai/overview.
 
 ## Core Principle: Svelte Renders, D3 Computes
 
-Use D3 for scales, extents, tick generation, color schemes, and data transforms. Use Svelte's template syntax (`{#each}`, `{#if}`, attribute bindings) to render SVG/HTML elements directly.
+Use D3 for scales, extents, tick generation, path generators, color schemes, and data transforms. Use Svelte's template syntax (`{#each}`, `{#if}`, attribute bindings) to render SVG/HTML elements directly.
 
 ```svelte
 <script>
-  import { scaleLinear, scaleBand, max } from 'd3';
+  import { scaleLinear, scaleBand, scaleOrdinal, max } from 'd3';
 
-  let { scrollyIndex } = $props();
+  const data = [
+    { label: 'A', value: 30 },
+    { label: 'B', value: 80 },
+    { label: 'C', value: 45 },
+  ];
 
   let width = $state(800);
   const height = 400;
-  const margin = { top: 20, right: 20, bottom: 80, left: 60 };
+  const margin = { top: 20, right: 20, bottom: 40, left: 50 };
 
   let innerWidth = $derived(width - margin.left - margin.right);
   let innerHeight = $derived(height - margin.top - margin.bottom);
@@ -39,24 +50,56 @@ Use D3 for scales, extents, tick generation, color schemes, and data transforms.
       .range([innerHeight, 0])
       .nice()
   );
+
+  const colorScale = scaleOrdinal()
+    .domain(data.map(d => d.label))
+    .range(["#1f77b4", "#ff7f0e", "#2ca02c"]);
+
+  let yTicks = $derived(yScale.ticks(5));
 </script>
 
 <div class="chart-container" bind:clientWidth={width}>
   <svg viewBox={`0 0 ${width} ${height}`}>
     <g transform={`translate(${margin.left},${margin.top})`}>
+      {#each yTicks as tick}
+        <line x1={0} x2={innerWidth} y1={yScale(tick)} y2={yScale(tick)} stroke="#e0e0e0" />
+      {/each}
+
       {#each data as d (d.label)}
         <rect
           x={xScale(d.label)}
           y={yScale(d.value)}
           width={xScale.bandwidth()}
           height={innerHeight - yScale(d.value)}
-          fill="#a6a6a6"
+          fill={colorScale(d.label)}
         />
       {/each}
+
+      {#each yTicks as tick}
+        <text x={-10} y={yScale(tick)} text-anchor="end" alignment-baseline="middle" font-size="10">
+          {tick}
+        </text>
+      {/each}
+
+      {#each data as d (d.label)}
+        <text
+          x={xScale(d.label) + xScale.bandwidth() / 2}
+          y={innerHeight + 16}
+          text-anchor="middle"
+          font-size="10"
+        >
+          {d.label}
+        </text>
+      {/each}
+
+      <line x1={0} x2={innerWidth} y1={innerHeight} y2={innerHeight} stroke="black" />
+      <line x1={0} x2={0} y1={0} y2={innerHeight} stroke="black" />
     </g>
   </svg>
 </div>
 ```
+
+This single example demonstrates the full pattern: reactive dimensions, derived scales, hand-rendered axes, and declarative SVG — all working together.
 
 **Never do this:**
 ```js
@@ -64,175 +107,65 @@ Use D3 for scales, extents, tick generation, color schemes, and data transforms.
 d3.select(svgRef).selectAll('rect').data(data).join('rect')...
 ```
 
-## Responsive Sizing
+## Reactive Scales
 
-Bind `clientWidth` on the chart container to get a reactive width. Derive inner dimensions from it. Use `viewBox` on the SVG so it scales naturally.
+The core example shows the basic pattern — every D3 scale as `$derived`. Two additional notes:
+
+- When computing extents from filtered or dynamic data requires multiple steps, use `$derived.by()`:
+
+```js
+let xExtent = $derived.by(() => {
+  const data = filteredData.length > 0 ? filteredData : allData;
+  const [min, max] = extent(data, d => d.x);
+  const padding = (max - min) * 0.05;
+  return [min - padding, max + padding];
+});
+```
+
+- Never use D3's axis generators (`d3.axisBottom`, etc.) — they imperatively mutate the DOM. Render axes by hand from `scale.ticks()` as shown in the core example. For time axes, use `timeFormat` from `d3-time-format` to format tick labels.
+
+## Path Generators: Lines and Areas
+
+Use D3's path generators (`line`, `area`) for the math, then render the resulting path string in a Svelte `<path>` element. Make generators `$derived` so they update with scale changes. Always use `?? ""` when calling generators, since they return `null` for empty data:
 
 ```svelte
 <script>
-  let width = $state(800);
-  const height = 400;
-  const margin = { top: 20, right: 20, bottom: 60, left: 60 };
+  import { line, area, curveMonotoneX } from 'd3-shape';
 
-  let innerWidth = $derived(width - margin.left - margin.right);
-  let innerHeight = $derived(height - margin.top - margin.bottom);
+  let lineGenerator = $derived(
+    line()
+      .x(d => xScale(d.label) ?? 0)
+      .y(d => yScale(d.value))
+      .curve(curveMonotoneX)
+  );
+
+  let areaGenerator = $derived(
+    area()
+      .x(d => xScale(d.label) ?? 0)
+      .y0(innerHeight)
+      .y1(d => yScale(d.value))
+      .curve(curveMonotoneX)
+  );
+
+  let linePath = $derived(lineGenerator(data) ?? "");
+  let areaPath = $derived(areaGenerator(data) ?? "");
 </script>
 
-<div class="chart-container" bind:clientWidth={width}>
-  <svg viewBox={`0 0 ${width} ${height}`}>
-    <g transform={`translate(${margin.left},${margin.top})`}>
-      <!-- chart content -->
-    </g>
-  </svg>
-</div>
+<!-- Area fill underneath, line on top -->
+<path d={areaPath} fill={color} opacity={0.2} />
+<path d={linePath} fill="none" stroke={color} stroke-width={2} />
 
-<style>
-  .chart-container {
-    width: 100%;
-    height: auto;
-  }
-
-  svg {
-    width: 100%;
-    height: auto;
-  }
-</style>
-```
-
-Because `width` is `$state` and scales are `$derived`, resizing the window automatically recomputes the chart — no manual resize listeners needed.
-
-For mobile-responsive margins or tick counts, use `$derived`:
-
-```js
-let isMobile = $derived(width < 768);
-
-let margin = $derived(isMobile
-  ? { top: 40, right: 20, bottom: 50, left: 50 }
-  : { top: 60, right: 40, bottom: 70, left: 70 }
-);
-
-let xTicks = $derived(isMobile ? [0, 0.5, 1.0] : [0, 0.2, 0.4, 0.6, 0.8, 1.0]);
-```
-
-## Reactive Scales
-
-Scales depend on data and dimensions — both can change. Make every scale `$derived` so it recomputes automatically:
-
-```js
-let xScale = $derived(
-  scaleBand()
-    .domain(currentData.map(d => d.label))
-    .range([0, innerWidth])
-    .padding(0.1)
-);
-
-let yScale = $derived(
-  scaleLinear()
-    .domain([0, max(currentData, d => d.value)])
-    .range([innerHeight, 0])
-    .nice()
-);
-```
-
-When data changes, scales recompute and the template re-renders — no imperative update logic needed.
-
-## Animations and Transitions
-
-### CSS Transitions (preferred for simple property changes)
-
-Use inline `style` with CSS `transition` for smooth interpolation between states. This is the simplest approach and works well for position, size, opacity, and color changes:
-
-```svelte
-{#each currentData as d (d.label)}
-  <rect
-    x={xScale(d.label)}
-    y={yScale(d.value)}
-    width={xScale.bandwidth()}
-    height={innerHeight - yScale(d.value)}
-    fill="#a6a6a6"
-    opacity={chartType === 'bar' ? 1 : 0}
-    style="transition: x 0.8s ease-in-out, y 0.8s ease-in-out, height 0.8s ease-in-out, opacity 0.8s ease-in-out;"
-  />
+<!-- Data point circles with native tooltips -->
+{#each data as d (d.label)}
+  <circle cx={xScale(d.label) ?? 0} cy={yScale(d.value)} r={3} fill={color}>
+    <title>{d.label}: {d.value}</title>
+  </circle>
 {/each}
 ```
 
-### CSS Keyframe Animations
+The generator and the path it produces are separate derived values — this keeps things composable and debuggable.
 
-For repeating or complex motion (bounce, pulse, shake), define `@keyframes` in `<style>` and toggle via a class:
+## Reference files
 
-```svelte
-<rect
-  class:bounce={stepConfig.animate === 'bounce'}
-  style="animation-delay: {0.1 * i}s;"
-/>
-
-<style>
-  @keyframes bounce {
-    0%, 100% { transform: translateY(0); }
-    30% { transform: translateY(-50px); }
-    50% { transform: translateY(0); }
-    70% { transform: translateY(-10px); }
-  }
-
-  .bounce {
-    animation: bounce 0.6s ease infinite;
-  }
-</style>
-```
-
-### Svelte `Tween` (for derived numeric values)
-
-When you need to smoothly animate a value that drives a scale (like axis domain extents), use `Tween` from `svelte/motion`. This is useful when the data range itself changes between steps:
-
-```js
-import { Tween } from 'svelte/motion';
-import { cubicOut } from 'svelte/easing';
-
-let lifeExpExtent = $derived.by(() => {
-  const vals = filteredData.map(d => d.life_expectancy);
-  return [Math.floor(Math.min(...vals)) - 5, Math.ceil(Math.max(...vals)) + 5];
-});
-
-const yMin = Tween.of(() => lifeExpExtent[0], { duration: 800, easing: cubicOut });
-const yMax = Tween.of(() => lifeExpExtent[1], { duration: 800, easing: cubicOut });
-
-let yScale = $derived(
-  scaleLinear()
-    .domain([yMin.current, yMax.current])
-    .range([innerHeight, 0])
-);
-```
-
-### When to Use Which
-
-| Technique | Use for | Example |
-|-----------|---------|---------|
-| CSS `transition` | Property interpolation between states | Bar positions, opacity fades |
-| CSS `@keyframes` | Repeating or multi-step animations | Bounce, pulse, entrance effects |
-| Svelte `Tween` | Smoothly animating derived numeric values | Axis domain changes, scale transitions |
-
-## Keyed Each Blocks
-
-Always key `{#each}` blocks with a stable identifier so Svelte can animate individual elements rather than replacing them:
-
-```svelte
-{#each currentData as d (d.label)}
-  <rect ... style="transition: x 0.8s ease-in-out;" />
-{/each}
-```
-
-Without the key `(d.label)`, reordering data would destroy and recreate DOM elements, breaking CSS transitions.
-
-## Component Decomposition
-
-For complex charts, extract axes, legends, regression lines, and interactive overlays into child components:
-
-```svelte
-<g transform={`translate(${margin.left},${margin.top})`}>
-  <XAxis {xScale} {innerWidth} {innerHeight} ticks={xTicks} label={xConfig.label} />
-  <YAxis {yScale} {innerWidth} {innerHeight} ticks={yTicks} label="Life Expectancy" />
-  <ScatterDots data={filteredData} {xScale} {yScale} {colorScale} bind:hoveredCountry />
-</g>
-```
-
-Pass scales and dimensions as props. Keep the main component focused on data pipeline and layout.
+- `references/animations.md` — CSS transitions, keyframes, Svelte `Tween` for chart animations.
+- `references/tooltips.md` — SVG `<title>`, rich HTML tooltips with viewport-aware positioning, hover state patterns.
